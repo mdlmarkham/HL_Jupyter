@@ -1,0 +1,49 @@
+services:
+  jupyter:
+    image: jupyter/scipy-notebook:latest
+    ports:
+      - 8889:8888
+    volumes:
+      - jupyter-data:/home/jovyan/work
+      - ./notebooks:/home/jovyan/notebooks
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-changeme}
+      - NB_UID=${NB_UID:-1000}
+      - NB_GID=${NB_GID:-100}
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "wget", "-O-", "http://localhost:8888/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    networks:
+      - jupyter-net
+    labels:
+      - "com.jupyter.description=Jupyter Notebook Server"
+      - "com.jupyter.environment=homelab"
+      - "com.jupyter.maintainer=homelab"
+
+volumes:
+  jupyter-data:
+    name: jupyter-data
+    labels:
+      - "com.jupyter.description=Jupyter Data Volume"
+      - "com.jupyter.environment=homelab"
+
+networks:
+  jupyter-net:
+    name: jupyter-net
+    driver: bridge
+    labels:
+      - "com.jupyter.description=Jupyter Network"
+      - "com.jupyter.environment=homelab"
