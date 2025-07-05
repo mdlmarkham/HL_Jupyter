@@ -4,18 +4,17 @@ services:
   jupyter:
     image: jupyter/scipy-notebook:latest
     ports:
-      - "8889:8888"                     # reachable from any device on your LAN
+      - "8889:8888"
     volumes:
       - jupyter-data:/home/jovyan/work
       - ./notebooks:/home/jovyan/notebooks:rw
     environment:
       - JUPYTER_ENABLE_LAB=yes
-      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-changeme}   # keep the token mechanism
-      # NB_UID / NB_GID left out because defaults are already 1000 / 100
-    mem_limit: 4g                       # compose-native resource limits
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-changeme}
+    mem_limit: 4g
     cpus: "2"
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8888/api/status"]
+    healthcheck:                       # ← option A shown here
+      test: ["CMD-SHELL", "curl -sf http://localhost:8888/api | grep -q 'version'"]
       interval: 30s
       timeout: 10s
       retries: 3
