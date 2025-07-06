@@ -189,13 +189,18 @@ def run_notebook():
                 if ex.exec_count and ex.exec_count <= len(nb_node.cells):
                     cell_src = nb_node.cells[ex.exec_count-1].source
                 
+                # Handle traceback - can be string or list
+                tb = ex.traceback or []
+                if isinstance(tb, str):
+                    tb = tb.splitlines()
+                
                 err_payload = {
                     "error_type": "papermill_execution_error",
                     "cell": ex.exec_count,
                     "ename": ex.ename,
                     "evalue": ex.evalue,
                     "cell_source": cell_src,
-                    "traceback": ex.traceback.splitlines()[-15:] if ex.traceback else [],
+                    "traceback": tb[-15:],  # Last 15 lines, whichever form it was
                     "output_nb": str(dst_path) if dst_path.exists() else None  # Path to executed notebook
                 }
                 return jsonify(err_payload), http.HTTPStatus.UNPROCESSABLE_ENTITY
