@@ -5,9 +5,7 @@ Papermill Gateway - Flask API for executing Jupyter notebooks via Papermill
 from flask import Flask, request, send_file, jsonify
 import papermill as pm
 import nbformat
-import tempfile
-import os
-import traceback
+import tempfile, os, traceback
 
 app = Flask(__name__)
 
@@ -16,46 +14,45 @@ def health():
     """Health check endpoint"""
     return jsonify({'status': 'healthy', 'service': 'papermill-gateway'})
 
-@app.post('/run')
+@app.post("/run")
 def run_notebook():
     try:
-        payload = request.get_json(force=True)      # may be list or dict
+        payload = request.get_json(force=True)
 
-        if isinstance(payload, list):               # peel array wrapper
+        # --- unwrap n8n list / dict wrappers ----------------------------
+        if isinstance(payload, list):
             if not payload:
                 return jsonify({"error": "Empty JSON array"}), 400
             payload = payload[0]
+        nb_json = payload.get("notebook", payload)
 
-        nb_json = payload.get("notebook", payload)  # unwrap "notebook": {...}
-
-        # validate
+        # --- validate + convert to NotebookNode -------------------------
         if "cells" not in nb_json:
             return jsonify({"error": "Invalid notebook JSON – missing 'cells'"}), 400
+        nb_node = nbformat.from_dict(nb_json)        # ← *** KEY LINE ***
 
-        with tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as src, \
-             tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as dst:
+        # --- write, execute, return ------------------------------------
+        with tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False) as src, \
+             tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False) as dst:
 
-            nbformat.write(nb_json, src)                # now has .cells
+            nbformat.write(nb_node, src)             # NotebookNode is accepted
             src.flush()
 
             pm.execute_notebook(
                 src.name,
                 dst.name,
-                kernel_name=nb_json.get("metadata", {})
-                                   .get("kernelspec", {})
-                                   .get("name", "python3"),
+                kernel_name=nb_node.metadata.kernelspec.name,
                 progress_bar=False
             )
 
             return send_file(
                 dst.name,
-                mimetype='application/x-ipynb+json',
+                mimetype="application/x-ipynb+json",
                 download_name=os.path.basename(dst.name)
             )
 
-    except Exception as e:
-        return jsonify({"error": str(e),
-                        "trace": traceback.format_exc()}), 500
+    except Exception as exc:
+        return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
 
 
 if __name__ == '__main__':
