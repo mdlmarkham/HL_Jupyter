@@ -15,6 +15,49 @@ app = Flask(__name__)
 # Configuration
 MAX_NOTEBOOK_SIZE_MB = 5
 ALLOWED_KERNELS = {"python3", "python"}  # whitelist
+RESULT_TAG = "results"  # keep lowercase, papermill lower-cases tags
+USE_SCRAPBOOK = True    # glue is safer for data frames
+
+def _extract_results(nb_path: str) -> dict:
+    """Return a clean JSON-serialisable dict of glued scraps OR fallback tag scan."""
+    if USE_SCRAPBOOK:
+        import scrapbook as sb
+        book = sb.read_notebook(nb_path)  # ⇢ Scrapbook.Notebook
+        return {k: _jsonify(v.data) for k, v in book.scraps.items()}
+    else:
+        out = {}
+        nb = nbformat.read(nb_path, as_version=4)
+        for c in nb.cells:
+            # Check both locations for tags
+            tags = c.metadata.get("tags", [])
+            papermill_tags = c.metadata.get("papermill", {}).get("tags", [])
+            all_tags = tags + papermill_tags
+            
+            if RESULT_TAG in all_tags:
+                for o in c.get("outputs", []):
+                    if "data" in o:  # execute_result / display_data
+                        key = f"cell_{c.execution_count}"
+                        out[key] = _jsonify(o["data"])
+        return out
+
+def _jsonify(payload):
+    """Make pandas/NumPy types JSON friendly."""
+    import pandas as pd
+    import numpy as np
+    import json
+    
+    if isinstance(payload, pd.DataFrame):
+        return json.loads(payload.to_json(orient="split"))
+    if isinstance(payload, (pd.Series, np.generic)):
+        return payload.tolist()
+    if isinstance(payload, dict):
+        return {k: _jsonify(v) for k, v in payload.items()}
+    if isinstance(payload, (list, tuple)):
+        return [_jsonify(item) for item in payload]
+    # Handle numpy arrays
+    if hasattr(payload, 'tolist'):
+        return payload.tolist()
+    return payload
 
 @app.route('/')
 def health():
@@ -78,14 +121,20 @@ def run_notebook():
                     cell_src = nb_node.cells[ex.exec_count-1].source
                 
                 err_payload = {
-                    "error_type": "execution",
+                    "error_type": "papermill_execution_error",
+                    "cell": ex.exec_count,
                     "ename": ex.ename,
                     "evalue": ex.evalue,
-                    "cell_index": ex.exec_count,
                     "cell_source": cell_src,
-                    "traceback": ex.traceback.splitlines()[-8:] if ex.traceback else []
+                    "traceback": ex.traceback.splitlines()[-15:] if ex.traceback else []
                 }
                 return jsonify(err_payload), http.HTTPStatus.UNPROCESSABLE_ENTITY
+            except ModuleNotFoundError as ex:  # catches missing libs
+                return jsonify({
+                    "error_type": "module_not_found",
+                    "module": getattr(ex, 'name', 'unknown'),
+                    "message": str(ex)
+                }), http.HTTPStatus.BAD_REQUEST
             except Exception as ex:
                 return jsonify({
                     "error_type": "kernel_startup", 
@@ -93,28 +142,14 @@ def run_notebook():
                 }), 500
 
             # ---------- 3. Extract results from executed notebook ----------
-            RESULT_TAG = "result"
-            
-            results = []
-            nb_executed = nbformat.read(str(dst_path), as_version=4)
-            
-            for cell in nb_executed.cells:
-                if RESULT_TAG in cell.metadata.get("tags", []):
-                    for output in cell.get("outputs", []):
-                        txt = None
-                        if output.output_type == "stream":
-                            txt = output.get("text", "")
-                        elif output.output_type == "execute_result":
-                            txt = output.get("data", {}).get("text/plain", "")
-                        
-                        if txt:
-                            try:
-                                txt = json.loads(txt)   # JSON? great – use native
-                            except Exception:
-                                pass                   # leave as raw string
-                            results.append(txt)
-
-            return jsonify({"results": results})
+            try:
+                results = _extract_results(str(dst_path))
+                return jsonify({"results": results})
+            except Exception as ex:
+                return jsonify({
+                    "error_type": "result_extraction_error",
+                    "message": str(ex)
+                }), 500
 
     except Exception as exc:
         return jsonify({

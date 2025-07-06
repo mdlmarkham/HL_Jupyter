@@ -15,9 +15,8 @@ jupyterlab>=4.0.0
 notebook>=7.0.0
 nbconvert>=7.0.0
 
-# Optional: For advanced notebook features
-# scrapbook>=0.5.0  # Uncomment if you want to use scrapbook for result collection
-# ipywidgets>=8.0.0  # Uncomment for interactive widgets
+# Result collection and data serialization
+scrapbook>=0.5.0  # For robust result collection from notebooks
 
 # Development and debugging
 requests>=2.31.0
