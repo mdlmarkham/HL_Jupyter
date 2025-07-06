@@ -184,10 +184,8 @@ def run_notebook():
                     execution_timeout=EXECUTION_TIMEOUT  # Max execution time
                 )
             except pm.exceptions.PapermillExecutionError as ex:
-                # Extract cell source for better error context
-                cell_src = ""
-                if ex.exec_count and ex.exec_count <= len(nb_node.cells):
-                    cell_src = nb_node.cells[ex.exec_count-1].source
+                # Decide which error flavour we want to expose
+                wrapped_is_module = ex.ename == "ModuleNotFoundError"
                 
                 # Handle traceback - can be string or list
                 tb = ex.traceback or []
@@ -195,15 +193,21 @@ def run_notebook():
                     tb = tb.splitlines()
                 
                 err_payload = {
-                    "error_type": "papermill_execution_error",
+                    "error_type": (
+                        "module_not_found" if wrapped_is_module else
+                        "papermill_execution_error"
+                    ),
                     "cell": ex.exec_count,
+                    "cell_source": _cell_source_from_output(str(dst_path), ex.exec_count),
                     "ename": ex.ename,
                     "evalue": ex.evalue,
-                    "cell_source": cell_src,
                     "traceback": tb[-15:],  # Last 15 lines, whichever form it was
                     "output_nb": str(dst_path) if dst_path.exists() else None  # Path to executed notebook
                 }
-                return jsonify(err_payload), http.HTTPStatus.UNPROCESSABLE_ENTITY
+                status = (http.HTTPStatus.BAD_REQUEST      # 400
+                          if wrapped_is_module else
+                          http.HTTPStatus.UNPROCESSABLE_ENTITY)  # 422
+                return jsonify(err_payload), status
             except ModuleNotFoundError as ex:  # catches missing libs
                 return jsonify({
                     "error_type": "module_not_found",
@@ -234,6 +238,27 @@ def run_notebook():
             "trace": traceback.format_exc().splitlines()[-10:]
         }), 500
 
+def _cell_source_from_output(nb_path: str, cell_idx: int | None) -> str:
+    """
+    Return the literal source of the *cell that raised* inside an executed
+    notebook.  We look for the first cell whose metadata.papermill["exception"]
+    is True.  If that fails we fall back to `cell_idx – 1` (0-based).
+    """
+    try:
+        nb = nbformat.read(nb_path, as_version=4)
+
+        # Primary: the papermill flag
+        for c in nb.cells:
+            if c.metadata.get("papermill", {}).get("exception"):
+                return c.source
+
+        # Fallback: positional guess (PapermillExecutionError.exec_count is 1-based)
+        if cell_idx and 0 < cell_idx <= len(nb.cells):
+            return nb.cells[cell_idx - 1].source
+
+        return "<unable to locate failing cell source>"
+    except Exception:
+        return "<error reading executed notebook>"
 
 if __name__ == '__main__':
     port = int(os.environ.get('GATEWAY_PORT', 5005))
