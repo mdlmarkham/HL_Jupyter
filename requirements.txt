@@ -18,6 +18,9 @@ nbconvert>=7.0.0
 # Result collection and data serialization
 scrapbook>=0.5.0  # For robust result collection from notebooks
 
+# System monitoring and performance
+psutil>=5.9.0  # For metrics endpoint
+
 # Development and debugging
 requests>=2.31.0
 pyyaml>=6.0

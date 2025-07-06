@@ -38,7 +38,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 60s  # Increased for pip install time
     restart: unless-stopped
     mem_limit: 4g
     cpus: "2"
@@ -50,6 +50,9 @@ services:
     image: jupyter/scipy-notebook:latest
     environment:
       - GATEWAY_PORT=5005
+      - MAX_NOTEBOOK_SIZE_MB=5
+      - EXECUTION_TIMEOUT=300
+      - USE_SCRAPBOOK=true
     command: |
       bash -c "
         pip install --no-cache-dir -r /tmp/requirements.txt && \
@@ -60,7 +63,9 @@ services:
       - ./gateway.py:/home/jovyan/gateway.py:ro
       - ./requirements.txt:/tmp/requirements.txt:ro  # shared requirements
     ports:
-      - "5005:5005"
+      - "5005:5005"     # Main API endpoint
+      # Uncomment below to expose metrics endpoint separately
+      # - "5006:5005"   # Metrics endpoint (if needed for monitoring)
     restart: unless-stopped
     mem_limit: 2g
     cpus: "1"
@@ -69,7 +74,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 60s  # Increased for pip install time
 
 volumes:
   jupyter-data:
