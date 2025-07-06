@@ -32,10 +32,12 @@ def run_notebook():
         nb_node = nbformat.from_dict(nb_json)        # ← *** KEY LINE ***
 
         # --- write, execute, return ------------------------------------
-        with tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False) as src, \
-             tempfile.NamedTemporaryFile(suffix=".ipynb", delete=False) as dst:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                         suffix=".ipynb", delete=False) as src, \
+             tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                         suffix=".ipynb", delete=False) as dst:
 
-            nbformat.write(nb_node, src)             # NotebookNode is accepted
+            nbformat.write(nb_node, src)
             src.flush()
 
             pm.execute_notebook(
@@ -45,11 +47,9 @@ def run_notebook():
                 progress_bar=False
             )
 
-            return send_file(
-                dst.name,
-                mimetype="application/x-ipynb+json",
-                download_name=os.path.basename(dst.name)
-            )
+            return send_file(dst.name,
+                             mimetype="application/x-ipynb+json",
+                             download_name=os.path.basename(dst.name))
 
     except Exception as exc:
         return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
