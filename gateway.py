@@ -20,7 +20,9 @@ def health():
 def run_notebook():
     try:
         payload = request.get_json(force=True)
-        nb_json = payload.get("notebook", payload)      # ← NEW
+        if isinstance(payload, list):
+            payload = payload[0] or {}
+        nb_json = payload.get("notebook", payload)
 
         with tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as src, \
              tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as dst:
