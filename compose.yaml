@@ -23,7 +23,11 @@ services:
     labels:
       com.jupyter.description: "Jupyter Notebook Server"
       com.jupyter.environment: "homelab"
-    command: start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''
+    command: >
+      start-notebook.sh
+      --ServerApp.jpserver_extensions="{'jupyter_server.nbconvert': True}"
+      --ServerApp.token=''
+      --ServerApp.password=''
 
 volumes:
   jupyter-data:
