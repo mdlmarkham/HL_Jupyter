@@ -19,10 +19,18 @@ def health():
 @app.post('/run')
 def run_notebook():
     try:
-        payload = request.get_json(force=True)
-        if isinstance(payload, list):
-            payload = payload[0] or {}
-        nb_json = payload.get("notebook", payload)
+        payload = request.get_json(force=True)      # may be list or dict
+
+        if isinstance(payload, list):               # peel array wrapper
+            if not payload:
+                return jsonify({"error": "Empty JSON array"}), 400
+            payload = payload[0]
+
+        nb_json = payload.get("notebook", payload)  # unwrap "notebook": {...}
+
+        # validate
+        if "cells" not in nb_json:
+            return jsonify({"error": "Invalid notebook JSON – missing 'cells'"}), 400
 
         with tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as src, \
              tempfile.NamedTemporaryFile(suffix='.ipynb', delete=False) as dst:
