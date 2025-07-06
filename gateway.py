@@ -12,6 +12,10 @@ import http
 
 app = Flask(__name__)
 
+# Configuration
+MAX_NOTEBOOK_SIZE_MB = 5
+ALLOWED_KERNELS = {"python3", "python"}  # whitelist
+
 @app.route('/')
 def health():
     """Health check endpoint"""
@@ -20,68 +24,103 @@ def health():
 @app.post("/run")
 def run_notebook():
     try:
-        payload = request.get_json(force=True)
+        # ---------- 0. Size guard ----------
+        if request.content_length and request.content_length > MAX_NOTEBOOK_SIZE_MB * 1024 * 1024:
+            return jsonify({"error": "Notebook too large"}), 413
 
-        # --- unwrap n8n list / dict wrappers ----------------------------
+        # ---------- 1. Unwrap + validate ----------
+        payload = request.get_json(force=True) or {}
+        
+        # unwrap n8n list / dict wrappers
         if isinstance(payload, list):
             if not payload:
                 return jsonify({"error": "Empty JSON array"}), 400
             payload = payload[0]
         nb_json = payload.get("notebook", payload)
 
-        # --- validate + convert to NotebookNode -------------------------
+        # validate + convert to NotebookNode
         if "cells" not in nb_json:
             return jsonify({"error": "Invalid notebook JSON – missing 'cells'"}), 400
-        nb_node = nbformat.from_dict(nb_json)        # ← *** KEY LINE ***
+            
+        try:
+            nb_node = nbformat.from_dict(nb_json)
+        except Exception as e:
+            return jsonify({"error": f"Notebook JSON invalid: {e}"}), 400
 
-        # --- write, execute, return ------------------------------------
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
-                                         suffix=".ipynb", delete=False) as src, \
-             tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
-                                         suffix=".ipynb", delete=False) as dst:
+        # kernel validation
+        kernelspec = (nb_node.metadata
+                            .get("kernelspec", {})
+                            .get("name", "python3"))
+        if kernelspec not in ALLOWED_KERNELS:
+            return jsonify({"error": f"Kernel '{kernelspec}' not allowed"}), 400
 
-            nbformat.write(nb_node, src)
-            src.flush()
+        # ---------- 2. Execute in temporary directory ----------
+        with tempfile.TemporaryDirectory() as tdir:
+            src_path = Path(tdir) / "input.ipynb"
+            dst_path = Path(tdir) / "output.ipynb"
+            
+            # write notebook to temp file
+            with src_path.open("w", encoding="utf-8") as f:
+                nbformat.write(nb_node, f)
 
             try:
                 pm.execute_notebook(
-                    src.name,
-                    dst.name,
-                    kernel_name=nb_node.metadata.kernelspec.name,
-                    progress_bar=False
+                    str(src_path),
+                    str(dst_path),
+                    kernel_name=kernelspec,
+                    progress_bar=False,
+                    log_output=False
                 )
             except pm.exceptions.PapermillExecutionError as ex:
-                # Pull the juicy bits before we lose scope
+                # Extract cell source for better error context
+                cell_src = ""
+                if ex.exec_count and ex.exec_count <= len(nb_node.cells):
+                    cell_src = nb_node.cells[ex.exec_count-1].source
+                
                 err_payload = {
-                    "cell_index": getattr(ex, 'exec_count', None),  # which cell blew up
+                    "error_type": "execution",
                     "ename": ex.ename,
                     "evalue": ex.evalue,
-                    "traceback": ex.traceback.splitlines()[-8:] if ex.traceback else [],  # last 8 lines
-                    "error_type": "notebook_execution_error"
+                    "cell_index": ex.exec_count,
+                    "cell_source": cell_src,
+                    "traceback": ex.traceback.splitlines()[-8:] if ex.traceback else []
                 }
                 return jsonify(err_payload), http.HTTPStatus.UNPROCESSABLE_ENTITY
+            except Exception as ex:
+                return jsonify({
+                    "error_type": "kernel_startup", 
+                    "message": str(ex)
+                }), 500
 
-            # --- Extract results from successfully executed notebook ---
-            # a) pick your strategy
-            RESULT_TAG = "result"          # if you're using tags
-            USE_SCRAPBOOK = False          # flip to True if using scrapbook
+            # ---------- 3. Extract results from executed notebook ----------
+            RESULT_TAG = "result"
+            
+            results = []
+            nb_executed = nbformat.read(str(dst_path), as_version=4)
+            
+            for cell in nb_executed.cells:
+                if RESULT_TAG in cell.metadata.get("tags", []):
+                    for output in cell.get("outputs", []):
+                        txt = None
+                        if output.output_type == "stream":
+                            txt = output.get("text", "")
+                        elif output.output_type == "execute_result":
+                            txt = output.get("data", {}).get("text/plain", "")
+                        
+                        if txt:
+                            try:
+                                txt = json.loads(txt)   # JSON? great – use native
+                            except Exception:
+                                pass                   # leave as raw string
+                            results.append(txt)
 
-            if USE_SCRAPBOOK:
-                import scrapbook as sb
-                nb = sb.read_notebook(dst.name)
-                results = nb.scraps.data_dict   # {'final_accuracy': 0.917, ...}
-            else:
-                nb = nbformat.read(dst.name, as_version=4)
-                results = []
-                for c in nb.cells:
-                    if RESULT_TAG in c.get("metadata", {}).get("tags", []):
-                        results.append(c.get("outputs", []))
-
-            # b) hand just the results back
             return jsonify({"results": results})
 
     except Exception as exc:
-        return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
+        return jsonify({
+            "error": str(exc),
+            "trace": traceback.format_exc().splitlines()[-10:]
+        }), 500
 
 
 if __name__ == '__main__':
