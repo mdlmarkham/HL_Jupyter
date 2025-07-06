@@ -6,6 +6,8 @@ from flask import Flask, request, send_file, jsonify
 import papermill as pm
 import nbformat
 import tempfile, os, traceback
+import json
+from pathlib import Path
 
 app = Flask(__name__)
 
@@ -47,9 +49,24 @@ def run_notebook():
                 progress_bar=False
             )
 
-            return send_file(dst.name,
-                             mimetype="application/x-ipynb+json",
-                             download_name=os.path.basename(dst.name))
+            # --- NEW: Extract results instead of returning full notebook ---
+            # a) pick your strategy
+            RESULT_TAG = "result"          # if you're using tags
+            USE_SCRAPBOOK = False          # flip to True if using scrapbook
+
+            if USE_SCRAPBOOK:
+                import scrapbook as sb
+                nb = sb.read_notebook(dst.name)
+                results = nb.scraps.data_dict   # {'final_accuracy': 0.917, ...}
+            else:
+                nb = nbformat.read(dst.name, as_version=4)
+                results = []
+                for c in nb.cells:
+                    if RESULT_TAG in c.get("metadata", {}).get("tags", []):
+                        results.append(c.get("outputs", []))
+
+            # b) hand just the results back
+            return jsonify({"results": results})
 
     except Exception as exc:
         return jsonify({"error": str(exc), "trace": traceback.format_exc()}), 500
