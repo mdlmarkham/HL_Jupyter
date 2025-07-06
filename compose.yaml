@@ -21,14 +21,18 @@ services:
     volumes:
       - jupyter-data:/home/jovyan/work              # persisted notebooks / data
       - ./notebooks:/home/jovyan/notebooks:rw       # your Git-pulled sources
+      - ./requirements.txt:/tmp/requirements.txt:ro # shared requirements
     environment:
       - JUPYTER_ENABLE_LAB=yes
       - JUPYTER_TOKEN=${JUPYTER_TOKEN:-changeme}
     command: >
-      start-notebook.sh
-      --ServerApp.jpserver_extensions="{'jupyter_server.nbconvert': True}"
-      --ServerApp.token=''
-      --ServerApp.password=''
+      bash -c "
+        pip install --no-cache-dir -r /tmp/requirements.txt && \
+        start-notebook.sh
+        --ServerApp.jpserver_extensions=\"{'jupyter_server.nbconvert': True}\"
+        --ServerApp.token=''
+        --ServerApp.password=''
+      "
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8888/api | grep -q 'version'"]
       interval: 30s
@@ -48,12 +52,13 @@ services:
       - GATEWAY_PORT=5005
     command: |
       bash -c "
-        pip install --no-cache-dir papermill flask && \
+        pip install --no-cache-dir -r /tmp/requirements.txt && \
         python /home/jovyan/gateway.py
       "
     volumes:
       - jupyter-data:/home/jovyan/work
       - ./gateway.py:/home/jovyan/gateway.py:ro
+      - ./requirements.txt:/tmp/requirements.txt:ro  # shared requirements
     ports:
       - "5005:5005"
     restart: unless-stopped
