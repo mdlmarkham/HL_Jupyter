@@ -4,7 +4,7 @@ services:
   jupyter:
     image: jupyter/scipy-notebook:latest
     ports:
-      - "8889:8888"
+      - "8888:8888"
     volumes:
       - jupyter-data:/home/jovyan/work
       - ./notebooks:/home/jovyan/notebooks:rw
