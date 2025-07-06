@@ -8,6 +8,7 @@ import nbformat
 import tempfile, os, traceback
 import json
 from pathlib import Path
+import http
 
 app = Flask(__name__)
 
@@ -42,14 +43,25 @@ def run_notebook():
             nbformat.write(nb_node, src)
             src.flush()
 
-            pm.execute_notebook(
-                src.name,
-                dst.name,
-                kernel_name=nb_node.metadata.kernelspec.name,
-                progress_bar=False
-            )
+            try:
+                pm.execute_notebook(
+                    src.name,
+                    dst.name,
+                    kernel_name=nb_node.metadata.kernelspec.name,
+                    progress_bar=False
+                )
+            except pm.exceptions.PapermillExecutionError as ex:
+                # Pull the juicy bits before we lose scope
+                err_payload = {
+                    "cell_index": getattr(ex, 'exec_count', None),  # which cell blew up
+                    "ename": ex.ename,
+                    "evalue": ex.evalue,
+                    "traceback": ex.traceback.splitlines()[-8:] if ex.traceback else [],  # last 8 lines
+                    "error_type": "notebook_execution_error"
+                }
+                return jsonify(err_payload), http.HTTPStatus.UNPROCESSABLE_ENTITY
 
-            # --- NEW: Extract results instead of returning full notebook ---
+            # --- Extract results from successfully executed notebook ---
             # a) pick your strategy
             RESULT_TAG = "result"          # if you're using tags
             USE_SCRAPBOOK = False          # flip to True if using scrapbook
