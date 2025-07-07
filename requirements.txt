@@ -9,7 +9,7 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 plotly>=5.14.0
 scikit-learn>=1.3.0
-reliability>=0.9.55
+reliability>=0.9.0
 scipy
 
 # Jupyter extensions and utilities
