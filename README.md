@@ -4,10 +4,11 @@ A production-ready Docker Compose stack for running Jupyter notebooks interactiv
 
 ## Architecture
 
-The stack consists of two complementary services sharing dependencies and storage:
+The stack consists of three complementary services sharing dependencies and storage:
 
 - **🔬 Jupyter Lab**: Interactive development environment for creating and testing notebooks
 - **⚡ Papermill Gateway**: Production REST API for automated notebook execution via Papermill
+- **🤖 Jupyter MCP Server**: Model Context Protocol server for AI agent integration with Jupyter notebooks
 
 Both services share the same Python environment through a common `requirements.txt` file, ensuring consistency and eliminating dependency conflicts.
 
@@ -32,6 +33,16 @@ Both services share the same Python environment through a common `requirements.t
 - ⏱️ Configurable execution (300s) and kernel start (60s) timeouts
 - 🔍 Pre-flight dependency checking to fail fast on missing modules
 - 🗂️ Support for both n8n payload formats and raw notebook JSON
+
+### Jupyter MCP Server
+
+- 🤖 Model Context Protocol (MCP) server for AI agent integration
+- ⚡ Real-time control and monitoring of Jupyter notebooks
+- 🔁 Smart execution with automatic cell failure handling
+- 🤝 Compatible with Claude Desktop, Cursor, Windsurf, and other MCP clients
+- 🔧 Advanced tools for notebook manipulation: `insert_execute_code_cell`, `append_markdown_cell`, `get_notebook_info`, `read_cell`
+- 🌐 Accessible on port 4040 for MCP client connections
+- 📊 Integration with shared Jupyter workspace for seamless notebook access
 
 ## Prerequisites
 
@@ -67,6 +78,7 @@ docker compose up -d
    - **Jupyter Lab**: <http://localhost:8888> (interactive development)
    - **Papermill Gateway**: <http://localhost:5005> (API endpoint)
    - **Gateway Metrics**: <http://localhost:5005/metrics> (monitoring)
+   - **Jupyter MCP Server**: <http://localhost:4040> (MCP protocol endpoint for AI agents)
 
 ## API Usage
 
@@ -195,6 +207,14 @@ result_data  # This will be captured if cell has "results" tag
 - `EXECUTION_TIMEOUT`: Maximum execution time in seconds (default: 300)
 - `USE_SCRAPBOOK`: Enable Scrapbook for result extraction (default: true)
 
+#### MCP Server Service
+
+- `ROOM_URL`: URL to the Jupyter service (default: "http://jupyter:8888")
+- `ROOM_TOKEN`: Authentication token for Jupyter access (uses JUPYTER_TOKEN)
+- `ROOM_ID`: Default notebook file to work with (default: "notebook.ipynb")
+- `RUNTIME_URL`: Runtime URL for Jupyter kernels (default: same as ROOM_URL)
+- `RUNTIME_TOKEN`: Runtime authentication token (uses JUPYTER_TOKEN)
+
 ### Gateway Configuration
 
 The gateway includes several built-in security and performance controls:
@@ -240,6 +260,89 @@ The containers are configured with the following resource constraints:
 - CPU: 1 core maximum
 - Health check: Every 30s with 60s startup grace period
 
+#### MCP Server Resources
+
+- Memory: 1GB maximum
+- CPU: 0.5 core maximum
+- Health check: Every 30s with 30s startup grace period
+- Port: 4040 for MCP protocol communication
+
+## MCP Client Configuration
+
+The Jupyter MCP Server enables AI agents to interact directly with your Jupyter environment. Here's how to configure popular MCP clients:
+
+### Claude Desktop (Windows/macOS)
+
+Add this configuration to your Claude Desktop settings (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "jupyter": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "ROOM_URL=http://host.docker.internal:8888",
+        "-e", "ROOM_TOKEN=changeme",
+        "-e", "ROOM_ID=notebook.ipynb",
+        "-e", "RUNTIME_URL=http://host.docker.internal:8888", 
+        "-e", "RUNTIME_TOKEN=changeme",
+        "datalayer/jupyter-mcp-server:latest"
+      ]
+    }
+  }
+}
+```
+
+### Linux MCP Client Configuration
+
+For Linux systems, use `localhost` instead of `host.docker.internal`:
+
+```json
+{
+  "mcpServers": {
+    "jupyter": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm", "--network=host",
+        "-e", "ROOM_URL=http://localhost:8888",
+        "-e", "ROOM_TOKEN=changeme",
+        "-e", "ROOM_ID=notebook.ipynb",
+        "-e", "RUNTIME_URL=http://localhost:8888",
+        "-e", "RUNTIME_TOKEN=changeme",
+        "datalayer/jupyter-mcp-server:latest"
+      ]
+    }
+  }
+}
+```
+
+### Available MCP Tools
+
+The Jupyter MCP Server provides these tools for AI agents:
+
+- `insert_execute_code_cell`: Insert and execute code in notebooks
+- `append_markdown_cell`: Add markdown documentation
+- `get_notebook_info`: Retrieve notebook structure and metadata
+- `read_cell`: Read specific notebook cells
+- `list_notebooks`: List available notebooks in the workspace
+
+### Testing MCP Connection
+
+Verify the MCP server is running and accessible:
+
+```bash
+# Test basic connectivity
+curl -f http://localhost:4040/health
+
+# Test MCP protocol (if using HTTP transport)
+curl -X POST http://localhost:4040 \
+  -H "Content-Type: application/json" \
+  -d '{"method": "tools/list", "params": {}}'
+```
+
+For complete MCP tools documentation, visit: <https://jupyter-mcp-server.datalayer.tech/tools>
+
 ### Persistent Storage
 
 The stack uses a dual storage approach optimized for both persistence and accessibility:
@@ -262,20 +365,22 @@ The stack uses a dual storage approach optimized for both persistence and access
 
 - **Jupyter**: Port 8888 (host) → 8888 (container)
 - **Gateway**: Port 5005 (host) → 5005 (container)  
+- **MCP Server**: Port 4040 (host) → 4040 (container)
 - **Metrics**: Available at gateway port `/metrics` endpoint
 - Network: Isolated `default` bridge network
 - Internal communication: Services can communicate via service names
 
 ### Health Monitoring
 
-Both services include comprehensive health monitoring:
+All services include comprehensive health monitoring:
 
 #### Service Health
 
 - **Jupyter**: HTTP check on `/api` endpoint every 30s
 - **Gateway**: HTTP check on `/` endpoint every 30s  
+- **MCP Server**: HTTP check on `/health` endpoint every 30s
 - **Timeout**: 10s with 3 retries before marking unhealthy
-- **Startup Grace**: 60s to allow for dependency installation
+- **Startup Grace**: 60s for Jupyter/Gateway, 30s for MCP Server
 
 #### Operational Metrics
 

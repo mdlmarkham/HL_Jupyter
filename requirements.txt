@@ -16,6 +16,14 @@ scipy
 jupyterlab>=4.0.0
 notebook>=7.0.0
 nbconvert>=7.0.0
+jupyter-collaboration>=4.0.2  # Required for MCP server integration
+
+# MCP Server integration
+jupyter-mcp-server>=0.6.0
+jupyter-kernel-client>=0.7.3
+jupyter-nbmodel-client>=0.13.4
+mcp[cli]>=1.10.1
+datalayer-pycrdt==0.12.17
 
 # Result collection and data serialization
 scrapbook>=0.5.0  # For robust result collection from notebooks

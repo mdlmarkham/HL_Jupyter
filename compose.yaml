@@ -28,10 +28,14 @@ services:
     command: >
       bash -c "
         pip install --no-cache-dir -r /tmp/requirements.txt && \
+        pip uninstall -y pycrdt datalayer_pycrdt && \
+        pip install datalayer_pycrdt==0.12.17 && \
         start-notebook.sh
         --ServerApp.jpserver_extensions=\"{'jupyter_server.nbconvert': True}\"
-        --ServerApp.token=''
+        --ServerApp.token='${JUPYTER_TOKEN:-changeme}'
         --ServerApp.password=''
+        --IdentityProvider.token='${JUPYTER_TOKEN:-changeme}'
+        --ip=0.0.0.0
       "
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8888/api | grep -q 'version'"]
@@ -75,6 +79,33 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s  # Increased for pip install time
+
+  jupyter-mcp-server:
+    image: datalayer/jupyter-mcp-server:latest
+    environment:
+      - ROOM_URL=http://jupyter:8888      # Connect to the jupyter service
+      - ROOM_TOKEN=${JUPYTER_TOKEN:-changeme}
+      - ROOM_ID=notebook.ipynb            # Default notebook path
+      - RUNTIME_URL=http://jupyter:8888   # Same as ROOM_URL for basic setup
+      - RUNTIME_TOKEN=${JUPYTER_TOKEN:-changeme}
+    ports:
+      - "4040:4040"     # MCP server port
+    volumes:
+      - jupyter-data:/home/jovyan/work:ro  # Read-only access to notebooks
+    depends_on:
+      - jupyter
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: "0.5"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4040/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      com.jupyter.description: "Jupyter MCP Server for notebook interaction"
+      com.jupyter.environment: "homelab"
 
 volumes:
   jupyter-data:
